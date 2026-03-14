@@ -2,10 +2,11 @@ const { clipboard } = require("electron");
 const { spawn } = require("child_process");
 
 class ClipboardManager {
-  constructor(logger) {
+  constructor(logger, databaseManager = null) {
     // 初始化剪贴板管理器
     this.logger = logger;
-    
+    this.databaseManager = databaseManager;
+
     // 尝试加载 osascript 模块（仅在 macOS 上）
     this.osascript = null;
     if (process.platform === "darwin") {
@@ -16,6 +17,15 @@ class ClipboardManager {
         this.safeLog("⚠️ osascript 模块加载失败，将使用备用方法", error.message);
       }
     }
+
+    // 终端应用列表（用于自动检测）
+    this.terminalApps = [
+      'gnome-terminal', 'konsole', 'xterm', 'terminator',
+      'alacritty', 'kitty', 'urxvt', 'terminology',
+      'tilix', 'mate-terminal', 'xfce4-terminal',
+      'deepin-terminal', 'elementary-terminal', 'foot',
+      'wezterm', 'tabby', 'hyper'
+    ];
   }
 
   // 安全日志方法 - 使用logManager记录
@@ -209,33 +219,143 @@ class ClipboardManager {
   }
 
   async pasteLinux(originalClipboard) {
-    return new Promise((resolve, reject) => {
-      const pasteProcess = spawn("xdotool", ["key", "ctrl+v"]);
+    return new Promise(async (resolve, reject) => {
+      try {
+        // 获取粘贴方式配置
+        let pasteMethod = 'auto';
+        if (this.databaseManager) {
+          pasteMethod = await this.databaseManager.getSetting('paste_method') || 'auto';
+        }
 
-      pasteProcess.on("close", (code) => {
-        if (code === 0) {
-          // 文本粘贴成功
-          setTimeout(() => {
-            clipboard.writeText(originalClipboard);
-          }, 100);
-          resolve();
+        let pasteKey = 'ctrl+v';
+
+        if (pasteMethod === 'ctrl_shift_v') {
+          // 用户强制使用终端模式
+          pasteKey = 'ctrl+shift+v';
+          this.safeLog("📋 使用终端粘贴模式 (Ctrl+Shift+V)");
+        } else if (pasteMethod === 'ctrl_v') {
+          // 用户强制使用标准模式
+          pasteKey = 'ctrl+v';
+          this.safeLog("📋 使用标准粘贴模式 (Ctrl+V)");
         } else {
+          // 自动检测模式
+          const isTerminal = await this.isTerminalApp();
+          pasteKey = isTerminal ? 'ctrl+shift+v' : 'ctrl+v';
+          this.safeLog(`📋 自动检测模式: ${isTerminal ? '终端' : '普通应用'}, 使用 ${pasteKey}`);
+        }
+
+        const pasteProcess = spawn("xdotool", ["key", pasteKey]);
+
+        pasteProcess.on("close", (code) => {
+          if (code === 0) {
+            // 文本粘贴成功
+            setTimeout(() => {
+              clipboard.writeText(originalClipboard);
+            }, 100);
+            resolve();
+          } else {
+            reject(
+              new Error(
+                `Linux 粘贴失败，代码 ${code}。文本已复制到剪贴板。`
+              )
+            );
+          }
+        });
+
+        pasteProcess.on("error", (error) => {
           reject(
             new Error(
-              `Linux 粘贴失败，代码 ${code}。文本已复制到剪贴板。`
+              `Linux 粘贴失败: ${error.message}。文本已复制到剪贴板。`
             )
           );
+        });
+      } catch (error) {
+        reject(new Error(`粘贴失败: ${error.message}`));
+      }
+    });
+  }
+
+  // 获取活动窗口ID
+  getActiveWindowId() {
+    return new Promise((resolve) => {
+      const proc = spawn("xdotool", ["getactivewindow"]);
+      let output = "";
+
+      proc.stdout.on("data", (data) => {
+        output += data.toString();
+      });
+
+      proc.on("close", (code) => {
+        if (code === 0) {
+          resolve(output.trim());
+        } else {
+          resolve(null);
         }
       });
 
-      pasteProcess.on("error", (error) => {
-        reject(
-          new Error(
-            `Linux 粘贴失败: ${error.message}。文本已复制到剪贴板。`
-          )
-        );
+      proc.on("error", () => {
+        resolve(null);
       });
     });
+  }
+
+  // 获取窗口类名
+  getWindowClassName(windowId) {
+    return new Promise((resolve) => {
+      if (!windowId) {
+        resolve("");
+        return;
+      }
+
+      const proc = spawn("xdotool", ["getwindowclassname", windowId]);
+      let output = "";
+
+      proc.stdout.on("data", (data) => {
+        output += data.toString();
+      });
+
+      proc.on("close", (code) => {
+        if (code === 0) {
+          resolve(output.trim().toLowerCase());
+        } else {
+          resolve("");
+        }
+      });
+
+      proc.on("error", () => {
+        resolve("");
+      });
+    });
+  }
+
+  // 检测当前焦点窗口是否是终端应用
+  async isTerminalApp() {
+    try {
+      const windowId = await this.getActiveWindowId();
+      if (!windowId) {
+        this.safeLog("⚠️ 无法获取活动窗口ID，默认使用标准粘贴");
+        return false;
+      }
+
+      const windowClass = await this.getWindowClassName(windowId);
+      this.safeLog(`🔍 当前窗口类名: ${windowClass}`);
+
+      // 检查是否在终端应用列表中
+      const isTerminal = this.terminalApps.some(app =>
+        windowClass.includes(app.toLowerCase())
+      );
+
+      if (isTerminal) {
+        this.safeLog(`✅ 检测到终端应用: ${windowClass}`);
+      } else {
+        this.safeLog(`ℹ️ 非终端应用: ${windowClass}`);
+      }
+
+      return isTerminal;
+    } catch (error) {
+      this.safeLog("⚠️ 检测终端应用失败:", error.message);
+      return false;
+    }
   }
 
   async checkAccessibilityPermissions() {

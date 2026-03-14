@@ -11,10 +11,12 @@ const SettingsPage = () => {
     ai_api_key: "",
     ai_base_url: "https://api.openai.com/v1",
     ai_model: "gpt-3.5-turbo",
-    enable_ai_optimization: true
+    enable_ai_optimization: true,
+    paste_method: "auto" // auto, ctrl_v, ctrl_shift_v
   });
-  
+
   const [customModel, setCustomModel] = useState(false);
+  const [platform, setPlatform] = useState('');
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -40,7 +42,15 @@ const SettingsPage = () => {
   // 加载设置
   useEffect(() => {
     loadSettings();
+    getPlatform();
   }, []);
+
+  const getPlatform = async () => {
+    if (window.electronAPI) {
+      const systemInfo = await window.electronAPI.getSystemInfo();
+      setPlatform(systemInfo.platform);
+    }
+  };
 
   const loadSettings = async () => {
     try {
@@ -51,7 +61,8 @@ const SettingsPage = () => {
           ai_api_key: allSettings.ai_api_key || "",
           ai_base_url: allSettings.ai_base_url || "https://api.openai.com/v1",
           ai_model: allSettings.ai_model || "gpt-3.5-turbo",
-          enable_ai_optimization: allSettings.enable_ai_optimization !== false // 默认为true
+          enable_ai_optimization: allSettings.enable_ai_optimization !== false, // 默认为true
+          paste_method: allSettings.paste_method || "auto" // 默认自动检测
         };
         setSettings(prev => ({ ...prev, ...loadedSettings }));
         
@@ -77,6 +88,7 @@ const SettingsPage = () => {
         await window.electronAPI.setSetting('ai_base_url', settings.ai_base_url);
         await window.electronAPI.setSetting('ai_model', settings.ai_model);
         await window.electronAPI.setSetting('enable_ai_optimization', settings.enable_ai_optimization);
+        await window.electronAPI.setSetting('paste_method', settings.paste_method);
         
         toast.success("设置保存成功");
       }
@@ -244,6 +256,76 @@ const SettingsPage = () => {
               </div>
             </div>
           </div>
+
+          {/* 粘贴设置部分 */}
+          {platform === 'linux' && (
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 mb-6">
+              <div className="p-6">
+                <div className="mb-4">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 chinese-title">
+                    粘贴设置
+                  </h2>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                    配置文本粘贴方式，解决终端环境下粘贴快捷键不同的问题。
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-3">
+                    <input
+                      type="radio"
+                      id="paste-auto"
+                      name="paste-method"
+                      value="auto"
+                      checked={settings.paste_method === 'auto'}
+                      onChange={() => handleInputChange('paste_method', 'auto')}
+                      className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                    />
+                    <label htmlFor="paste-auto" className="text-sm text-gray-700 dark:text-gray-300">
+                      <span className="font-medium">自动检测</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">（推荐）自动识别终端应用</span>
+                    </label>
+                  </div>
+
+                  <div className="flex items-center space-x-3">
+                    <input
+                      type="radio"
+                      id="paste-ctrl-v"
+                      name="paste-method"
+                      value="ctrl_v"
+                      checked={settings.paste_method === 'ctrl_v'}
+                      onChange={() => handleInputChange('paste_method', 'ctrl_v')}
+                      className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                    />
+                    <label htmlFor="paste-ctrl-v" className="text-sm text-gray-700 dark:text-gray-300">
+                      <span className="font-medium">Ctrl+V</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">标准粘贴快捷键</span>
+                    </label>
+                  </div>
+
+                  <div className="flex items-center space-x-3">
+                    <input
+                      type="radio"
+                      id="paste-ctrl-shift-v"
+                      name="paste-method"
+                      value="ctrl_shift_v"
+                      checked={settings.paste_method === 'ctrl_shift_v'}
+                      onChange={() => handleInputChange('paste_method', 'ctrl_shift_v')}
+                      className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                    />
+                    <label htmlFor="paste-ctrl-shift-v" className="text-sm text-gray-700 dark:text-gray-300">
+                      <span className="font-medium">Ctrl+Shift+V</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">终端粘贴快捷键</span>
+                    </label>
+                  </div>
+                </div>
+
+                <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                  💡 提示：如果在终端中粘贴不生效，请尝试切换到 "Ctrl+Shift+V" 模式。
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* AI配置部分 */}
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700">
@@ -495,7 +577,7 @@ const SettingsPage = () => {
                 
                 <button
                   onClick={saveSettings}
-                  disabled={saving || !settings.ai_api_key}
+                  disabled={saving}
                   className="flex items-center space-x-2 px-4 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {saving ? (
