@@ -307,7 +307,8 @@ class ClipboardManager {
         return;
       }
 
-      const proc = spawn("xdotool", ["getwindowclassname", windowId]);
+      // 使用 xprop 获取窗口类名（xdotool 没有 getwindowclassname 命令）
+      const proc = spawn("xprop", ["-id", windowId, "WM_CLASS"]);
       let output = "";
 
       proc.stdout.on("data", (data) => {
@@ -316,7 +317,13 @@ class ClipboardManager {
 
       proc.on("close", (code) => {
         if (code === 0) {
-          resolve(output.trim().toLowerCase());
+          // 解析输出格式: WM_CLASS(STRING) = "kitty", "kitty"
+          const match = output.match(/WM_CLASS\(STRING\)\s*=\s*"([^"]+)"/);
+          if (match && match[1]) {
+            resolve(match[1].toLowerCase());
+          } else {
+            resolve("");
+          }
         } else {
           resolve("");
         }
