@@ -157,7 +157,7 @@ class ClipboardManager {
             setTimeout(() => {
               clipboard.writeText(originalClipboard);
               this.safeLog("🔄 原始剪贴板内容已恢复");
-            }, 100);
+            }, 500);
             resolve();
           } else {
             const errorMsg = `粘贴失败 (代码 ${code})。文本已复制到剪贴板 - 请手动使用 Cmd+V 粘贴。`;
@@ -251,7 +251,7 @@ class ClipboardManager {
             // 文本粘贴成功
             setTimeout(() => {
               clipboard.writeText(originalClipboard);
-            }, 100);
+            }, 500);
             resolve();
           } else {
             reject(
